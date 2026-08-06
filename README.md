@@ -300,7 +300,7 @@ async def example():
     chunk = 1024 * 1024 * 10  # 下载文件时，每次从服务器获取的数据块大小，单位：字节
     max_retry = 2  # 请求数据失败时，重试的最大次数，单位：次
     record_data = False  # 是否保存作品数据至文件
-    image_format = "WEBP"  # 图文作品文件下载格式，支持：AUTO、PNG、WEBP、JPEG、HEIC
+    image_format = "AUTO"  # 图文作品文件下载格式，支持：AUTO、PNG、JPEG、HEIC
     folder_mode = False  # 是否将每个作品的文件储存至单独的文件夹
     image_download = True  # 图文、图集作品文件下载开关
     video_download = True  # 视频作品文件下载开关
