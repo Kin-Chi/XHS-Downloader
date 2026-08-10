@@ -1,20 +1,21 @@
 """PyWebView 静态界面与下载器核心之间的运行时桥接层。"""
 
-from __future__ import annotations
-
 import asyncio
 import sys
 from asyncio import CancelledError
 from collections import deque
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from re import search
+from subprocess import DEVNULL, Popen
 from threading import Event, Thread
 from typing import Any
 from uuid import uuid4
+from webbrowser import open as open_browser
 
+import webview
 from pyperclip import copy, paste
 
 from ..application import XHS
@@ -38,12 +39,18 @@ from .ui_strings import (
 
 # 下载记录固定按每页 100 条返回，前端仅负责渲染当前页。
 HISTORY_PAGE_SIZE = 100
+ABOUT_URLS = {
+    "repository": REPOSITORY,
+    "discord": "https://discord.com/invite/ZYtmgKud9Y",
+    "tk": "https://github.com/JoeanAmier/TikTokDownloader",
+    "ks": "https://github.com/JoeanAmier/KS-Downloader",
+}
 
 
 def now_text() -> str:
     """返回用于界面显示的本地时间。"""
 
-    return datetime.now().strftime("%H:%M:%S")
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def build_update_result(release_url: str) -> dict[str, Any]:
@@ -52,7 +59,10 @@ def build_update_result(release_url: str) -> dict[str, Any]:
     tag = release_url.rstrip("/").split("/")[-1]
     match = search(r"(?<!\d)(\d+)\.(\d+)(?!\d)", tag)
     if not match:
-        raise ValueError("Invalid release version")
+        return {
+            "status": "error",
+            "message": _("无法解析版本号：{0}").format(tag),
+        }
 
     target = tuple(map(int, match.groups()))
     current = (VERSION_MAJOR, VERSION_MINOR)
@@ -84,13 +94,16 @@ def build_update_result(release_url: str) -> dict[str, Any]:
             title = _("当前已是最新正式版")
             message = _("当前版本为 {0}").format(current_version)
         case 2:
-            kind = "development_current" if VERSION_BETA else "up_to_date"
-            title = _("当前已是最新开发版") if VERSION_BETA else _("当前已是最新正式版")
+            kind = "development_current"
+            title = _("当前已是最新开发版")
             message = _("当前版本为 {0}，最新正式版为 {1}").format(
                 current_version, latest_version
             )
         case _:
-            raise ValueError
+            return {
+                "status": "error",
+                "message": _("版本比较结果无效"),
+            }
 
     return {
         "status": "ok",
@@ -108,10 +121,6 @@ class TaskState:
     url: str
     source: str = "manual"
     state: str = "pending"
-    error: str | None = None
-    created_at: str = field(default_factory=now_text)
-    started_at: str | None = None
-    finished_at: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """转换为可通过 PyWebView 序列化给 JavaScript 的普通字典。"""
@@ -121,10 +130,6 @@ class TaskState:
             "url": self.url,
             "source": self.source,
             "state": self.state,
-            "error": self.error,
-            "created_at": self.created_at,
-            "started_at": self.started_at,
-            "finished_at": self.finished_at,
         }
 
 
@@ -172,11 +177,10 @@ class GuiBackend:
             "active": False,
             "state": "stopped",
             "started_at": None,
-            "detected": 0,
             "created": 0,
         }
 
-    def start(self) -> None:
+    def start(self, wait: bool = True) -> None:
         # PyWebView 的 JavaScript 调用来自主线程，下载器事件循环运行于后台线程，
         # 以避免网络请求阻塞窗口，并通过 call() 实现跨线程协程调度。
         self.thread = Thread(
@@ -185,9 +189,17 @@ class GuiBackend:
             daemon=True,
         )
         self.thread.start()
-        self.ready.wait()
+        if not wait:
+            return
+        self.wait_until_ready()
+
+    def wait_until_ready(self, timeout: float | None = None) -> None:
+        """等待 GUI 后端线程完成初始化，以便处理接口调用。"""
+
+        if not self.ready.wait(timeout):
+            raise RuntimeError("GUI 后端初始化超时")
         if self.start_error:
-            raise RuntimeError(_("GUI 后端初始化失败")) from self.start_error
+            raise RuntimeError("GUI 后端初始化失败") from self.start_error
 
     def _thread_main(self) -> None:
         """创建后台事件循环，并在初始化完成后持续处理异步任务。"""
@@ -221,7 +233,6 @@ class GuiBackend:
         self.task_queue = asyncio.Queue()
         await self._create_xhs()
         self.worker = asyncio.create_task(self._worker_loop())
-        self.add_log(_("GUI 后端初始化完成"), "success")
 
     async def _create_xhs(self) -> None:
         """按当前配置创建 XHS 实例，并把核心日志导向 GUI。"""
@@ -267,9 +278,19 @@ class GuiBackend:
     def call(self, coroutine):
         """把协程提交到后台循环，并同步等待 PyWebView API 的返回值。"""
 
-        if not self.loop or self.closed:
-            raise RuntimeError(_("GUI 后端未运行"))
-        return asyncio.run_coroutine_threadsafe(coroutine, self.loop).result(timeout=30)
+        try:
+            if self.closed:
+                raise RuntimeError("GUI 后端未运行")
+            self.wait_until_ready(timeout=30)
+            if not self.loop:
+                raise RuntimeError("GUI 后端未运行")
+            return asyncio.run_coroutine_threadsafe(coroutine, self.loop).result(
+                timeout=30
+            )
+        except Exception:
+            with suppress(Exception):
+                coroutine.close()
+            raise
 
     def add_log(self, message: str, level: str = "info") -> None:
         """追加一条有上限的运行日志，避免长期运行时内存无限增长。"""
@@ -333,10 +354,7 @@ class GuiBackend:
         if task.state != "pending":
             return
         task.state = "processing"
-        task.started_at = now_text()
         try:
-            if not self.xhs:
-                raise RuntimeError(_("下载器尚未初始化"))
             # extract() 通过回调返回汇总统计，GUI 不根据 URL 推断任务结果。
             statistics: dict[str, Any] = {}
 
@@ -357,8 +375,6 @@ class GuiBackend:
                 task.state = "skipped"
             else:
                 task.state = "failed"
-            if task.state == "failed":
-                task.error = _("作品处理失败")
             if self.xhs.manager.download_record:
                 self.history_revision += 1
         except CancelledError:
@@ -367,10 +383,7 @@ class GuiBackend:
             raise
         except Exception as error:
             task.state = "failed"
-            task.error = str(error)
-            self.add_log(task.error, "error")
-        finally:
-            task.finished_at = now_text()
+            self.add_log(str(error), "error")
 
     def on_file_progress(self, event: dict[str, Any]) -> None:
         """接收下载器的实时文件事件，按“任务 ID + 文件名”更新进度。"""
@@ -408,7 +421,6 @@ class GuiBackend:
         if not task or task.state != "pending":
             return False
         task.state = "cancelled"
-        task.finished_at = now_text()
         return True
 
     async def clear_finished(self) -> int:
@@ -436,7 +448,6 @@ class GuiBackend:
                 "active": True,
                 "state": "running",
                 "started_at": now_text(),
-                "detected": 0,
                 "created": 0,
             }
         )
@@ -470,7 +481,6 @@ class GuiBackend:
             if content and content != clipboard_cache:
                 clipboard_cache = content
                 created = await self._enqueue_links(content, "monitor")
-                self.monitor["detected"] += len(created)
                 self.monitor["created"] += len(created)
             await asyncio.sleep(1)
 
@@ -488,7 +498,7 @@ class GuiBackend:
             requested_page = max(1, int(page))
         except (TypeError, ValueError):
             requested_page = 1
-        if not enabled or not self.xhs:
+        if not enabled:
             return {
                 "enabled": False,
                 "items": [],
@@ -652,12 +662,13 @@ class GuiBackend:
                 "message": _("无法获取最新版本，请检查网络连接后重试"),
             }
 
-    async def open_repository(self) -> bool:
-        """在线程池中调用系统浏览器打开项目仓库。"""
+    async def open_url(self, url: str) -> bool:
+        """在线程池中调用系统浏览器打开关于页允许展示的外部链接。"""
 
-        import webbrowser
+        if url not in ABOUT_URLS.values():
+            return False
 
-        return await asyncio.to_thread(webbrowser.open, REPOSITORY)
+        return await asyncio.to_thread(open_browser, url)
 
     async def open_download_folder(self) -> bool:
         """打开当前配置实际生效的作品文件储存目录。"""
@@ -673,8 +684,6 @@ class GuiBackend:
 
                     startfile(str(path))
                 else:
-                    from subprocess import DEVNULL, Popen
-
                     command = "open" if sys.platform == "darwin" else "xdg-open"
                     Popen([command, str(path)], stdout=DEVNULL, stderr=DEVNULL)
                 return True
@@ -704,6 +713,7 @@ class GuiBackend:
                 "license": LICENCE,
                 "repository": REPOSITORY,
                 "author": "JoeanAmier",
+                "links": dict(ABOUT_URLS),
             },
         }
 
@@ -736,8 +746,7 @@ class GuiApi:
         """打开系统目录选择器并返回用户选中的路径。"""
 
         if not self._window:
-            raise RuntimeError(_("GUI 窗口尚未就绪"))
-        import webview
+            raise RuntimeError("GUI 窗口尚未就绪")
 
         initial = Path(str(directory or ""))
         dialog_directory = str(initial) if initial.is_dir() else ""
@@ -833,10 +842,10 @@ class GuiApi:
 
         return self._backend.call(self._backend.check_update())
 
-    def open_repository(self) -> bool:
-        """请求系统浏览器打开项目仓库。"""
+    def open_url(self, url: str) -> bool:
+        """请求系统浏览器打开关于页允许展示的外部链接。"""
 
-        return self._backend.call(self._backend.open_repository())
+        return self._backend.call(self._backend.open_url(url))
 
     def open_download_folder(self) -> bool:
         """请求系统文件管理器打开当前下载目录。"""

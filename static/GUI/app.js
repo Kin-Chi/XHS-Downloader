@@ -5,23 +5,14 @@
     const body = document.body;
     const content = document.getElementById("mainContent");
     const viewTitle = document.getElementById("viewTitle");
-    const viewMeta = document.getElementById("viewMeta");
     const toastRegion = document.getElementById("toastRegion");
     const startupScreen = document.getElementById("startupScreen");
 
-    // 页面标题和副标题保存语言键，具体文本由后端加载的翻译包提供。
-    const viewCopy = {
-        "new-task": {title: "nav.new_task", meta: "page.new_task"},
-        monitor: {title: "nav.monitor", meta: "monitor.description"},
-        queue: {title: "nav.queue", meta: "page.queue"},
-        history: {title: "nav.history", meta: "history.query_id"},
-        logs: {title: "nav.logs", meta: "page.logs"},
-        settings: {title: "nav.settings", meta: "page.settings"},
-        about: {title: "nav.about"},
-    };
+    const viewNames = new Set(["new_task", "monitor", "queue", "history", "logs", "settings", "disclaimer", "about"]);
 
     let uiTranslations = Object.create(null);
     let translatedUiInitialized = false;
+    let aboutLinks = Object.create(null);
 
     function translateText(key) {
         return uiTranslations[key];
@@ -54,14 +45,15 @@
         return `<svg><use href="#${name}"/></svg>`;
     }
 
-    function showToast(title, message = "", type = "success") {
+    function showToast(text, type = "success") {
         // 提示消息仅用于短暂反馈，不保存业务状态；业务状态由后端快照负责同步。
         const toast = document.createElement("div");
         toast.className = `toast ${type}`;
         toast.innerHTML = `
             <span class="toast-icon">${icon(type === "warning" ? "info" : "check")}</span>
-            <div><strong>${title}</strong><span>${message}</span></div>
+            <span class="toast-message"></span>
         `;
+        toast.querySelector(".toast-message").textContent = text;
         toastRegion.appendChild(toast);
         window.setTimeout(() => {
             toast.classList.add("out");
@@ -77,17 +69,13 @@
     let monitorMode = false;
 
     function updateViewHeader(name) {
-        const copy = viewCopy[name];
-        const metaKey = copy.meta;
-        viewTitle.textContent = translateText(copy.title);
-        viewMeta.textContent = metaKey ? translateText(metaKey) : "";
+        viewTitle.textContent = translateText(`nav.${name}`);
     }
 
     function setView(name, options = {}) {
+        if (!viewNames.has(name)) return;
         // 监听运行期间锁定其他页面，避免在监听模式下修改配置或创建冲突任务。
         if (monitorMode && name !== "monitor" && !options.force) {
-            showToast(
-                translateText("toast.exit_monitor_first"), translateText("toast.monitor_switch_locked"), "warning");
             return;
         }
         const page = document.querySelector(`.view[data-page="${name}"]`);
@@ -101,6 +89,9 @@
             window.history.replaceState(null, "", `#${name}`);
         }
         content.scrollTop = 0;
+        if (name === "settings") {
+            window.requestAnimationFrame(updateSettingsNavigation);
+        }
         closeSidebar();
     }
 
@@ -124,16 +115,11 @@
     const monitorFileDownloadList = document.getElementById("monitorFileDownloadList");
 
     function renderMonitorState(active) {
-        // 监听页始终显示当前状态；active 仅控制按钮、状态指示和说明文本，不影响队列展示。
+        // 监听页始终显示当前状态；active 仅控制按钮和状态指示，不影响队列展示。
         monitorToggleButton.className = active ? "secondary-button danger-subtle" : "primary-button";
         monitorToggleButton.innerHTML = active
                                         ? `${icon("x")}${translateText("monitor.stop")}`
                                         : `${icon("play")}${translateText("monitor.start")}`;
-        if (document.querySelector(".view.active")?.dataset.page === "monitor") {
-            viewMeta.textContent = active
-                                   ? translateText("monitor.reading")
-                                   : translateText(viewCopy.monitor.meta);
-        }
         monitorState.classList.toggle("inactive", !active);
         monitorState.innerHTML = `<i></i><span>${translateText(active ? "monitor.active" : "monitor.inactive")}</span>`;
     }
@@ -188,7 +174,30 @@
         return hasContent;
     }
 
+    function insertTextAtCursor(input, text) {
+        const start = input.selectionStart ?? input.value.length;
+        const end = input.selectionEnd ?? start;
+        input.value = `${input.value.slice(0, start)}${text}${input.value.slice(end)}`;
+        const cursor = start + text.length;
+        input.setSelectionRange(cursor, cursor);
+        updateCreateButton();
+    }
+
     urlInput.addEventListener("input", updateCreateButton);
+
+    urlInput.addEventListener("keydown", (event) => {
+        if (!(event.key?.toLowerCase() === "v" && (event.ctrlKey || event.metaKey))) return;
+        const previousValue = urlInput.value;
+        window.setTimeout(() => {
+            if (urlInput.value !== previousValue) return;
+            void runNativeAction(async () => {
+                const content = await nativeApi.paste_content();
+                if (!content) return;
+                insertTextAtCursor(urlInput, content);
+                urlInput.focus();
+            });
+        });
+    });
 
     document.getElementById("clearInput").addEventListener("click", () => {
         urlInput.value = "";
@@ -198,8 +207,8 @@
 
     document.getElementById("pasteButton").addEventListener("click", () => {
         void runNativeAction(async () => {
-            urlInput.value = await nativeApi.paste_content();
-            updateCreateButton();
+            const content = await nativeApi.paste_content();
+            if (content) insertTextAtCursor(urlInput, content);
             urlInput.focus();
         });
     });
@@ -229,6 +238,28 @@
     const queueEmpty = document.getElementById("queueEmpty");
     const fileDownloadList = document.getElementById("fileDownloadList");
     let currentQueueFilter = "all";
+
+    const listScrollStates = new WeakMap();
+
+    function isNearBottom(target, threshold = 2) {
+        return target.scrollHeight - target.scrollTop - target.clientHeight <= threshold;
+    }
+
+    function followsBottom(target) {
+        let state = listScrollStates.get(target);
+        if (state) return state.followBottom;
+        state = {followBottom: true};
+        target.addEventListener("scroll", () => {
+            state.followBottom = isNearBottom(target);
+        });
+        listScrollStates.set(target, state);
+        return state.followBottom;
+    }
+
+    function stickToBottom(target, enabled) {
+        if (!enabled) return;
+        target.scrollTop = target.scrollHeight;
+    }
 
     function matchesQueueFilter(state, filter = currentQueueFilter) {
         // 筛选仅修改当前视图的 hidden 状态，不会从后端任务集合中删除任务。
@@ -340,12 +371,8 @@
         const rows = recordRows();
         const start = historyTotal ? ((historyPage - 1) * historyPageSize) + 1 : 0;
         const end = historyTotal ? start + rows.length - 1 : 0;
-        document.getElementById("recordSummary").textContent = historyEnabled
-                                                               ? formatTranslated(
-                historyQuery ? "history.found" : "history.summary", [historyTotal])
-                                                               : translateText("history.disabled");
         document.getElementById("recordRange").textContent = !historyEnabled
-                                                             ? translateText("history.disabled_description")
+                                                             ? ""
                                                              : historyTotal
                                                                ? formatTranslated(
                     "history.range",
@@ -354,7 +381,7 @@
                          "history.search_results") : ""]
                 )
                                                                : historyQuery ? translateText("history.no_match") :
-                                                                 translateText("history.no_records");
+                                                                 translateText("history.empty");
         historyPageLabel.textContent = historyPageCount ? `${historyPage} / ${historyPageCount}` : "0 / 0";
         historyPrev.disabled = !historyEnabled || !historyPageCount || historyPage <= 1;
         historyNext.disabled = !historyEnabled || !historyPageCount || historyPage >= historyPageCount;
@@ -446,7 +473,7 @@
             renderNativeHistoryPage(result);
         } catch (error) {
             if (requestId === historyRequestId) showToast(
-                translateText("history.read_failed"), String(error), "warning");
+                translateText("history.read_failed"), "warning");
         }
     }
 
@@ -516,16 +543,67 @@
 
     // 设置导航仅滚动设置面板，避免改变整个窗口的滚动位置。
     const settingsPanel = document.getElementById("settingsPanel");
+    const settingsNavButtons = [...document.querySelectorAll(".settings-nav button")];
+    const settingsGroups = settingsNavButtons
+        .map((button) => document.getElementById(button.dataset.setting))
+        .filter(Boolean);
+    let settingsScrollTarget = null;
 
-    document.querySelectorAll(".settings-nav button").forEach((button) => {
+    function setActiveSettingsGroup(groupId) {
+        settingsNavButtons.forEach((button) => {
+            button.classList.toggle("active", button.dataset.setting === groupId);
+        });
+    }
+
+    function updateSettingsNavigation() {
+        if (!settingsPanel || settingsGroups.length === 0 || settingsPanel.clientHeight === 0) return;
+
+        const panelTop = settingsPanel.getBoundingClientRect().top;
+        const atBottom = settingsPanel.scrollTop
+            >= settingsPanel.scrollHeight - settingsPanel.clientHeight - 1;
+
+        if (settingsScrollTarget) {
+            const targetTop = settingsScrollTarget.getBoundingClientRect().top - panelTop;
+            const targetIsLast = settingsScrollTarget === settingsGroups[settingsGroups.length - 1];
+            if (Math.abs(targetTop) <= 1 || (targetIsLast && atBottom)) {
+                settingsScrollTarget = null;
+            } else {
+                return;
+            }
+        }
+
+        let activeGroup = settingsGroups[0];
+
+        if (atBottom) {
+            activeGroup = settingsGroups[settingsGroups.length - 1];
+        } else {
+            settingsGroups.forEach((group) => {
+                if (group.getBoundingClientRect().top <= panelTop + 24) {
+                    activeGroup = group;
+                }
+            });
+        }
+        setActiveSettingsGroup(activeGroup.id);
+    }
+
+    settingsNavButtons.forEach((button) => {
         button.addEventListener("click", () => {
-            document.querySelectorAll(".settings-nav button")
-                    .forEach((item) => item.classList.toggle("active", item === button));
             const target = document.getElementById(button.dataset.setting);
+            if (!target) return;
+            settingsScrollTarget = target;
+            setActiveSettingsGroup(button.dataset.setting);
             const top = target.getBoundingClientRect().top - settingsPanel.getBoundingClientRect().top + settingsPanel.scrollTop;
             settingsPanel.scrollTo({top, behavior: "smooth"});
         });
     });
+    settingsPanel?.addEventListener("wheel", () => {
+        settingsScrollTarget = null;
+    }, {passive: true});
+    settingsPanel?.addEventListener("touchstart", () => {
+        settingsScrollTarget = null;
+    }, {passive: true});
+    settingsPanel?.addEventListener("scroll", updateSettingsNavigation, {passive: true});
+    window.addEventListener("resize", updateSettingsNavigation);
 
     // 文件命名字段可在“启用”和“未启用”两栏之间拖拽，启用栏顺序即配置保存顺序。
     let NAME_FORMAT_FIELDS = [];
@@ -672,7 +750,7 @@
         renderMonitorState(monitorMode);
         if (!translatedUiInitialized) {
             const initialView = window.location.hash.slice(1);
-            if (viewCopy[initialView]) setView(initialView);
+            setView(viewNames.has(initialView) ? initialView : "new_task");
             translatedUiInitialized = true;
         }
     }
@@ -693,15 +771,6 @@
         cancelled: "queue.cancelled",
     };
 
-    const statusDetails = {
-        processing: "state.processing_detail",
-        pending: "state.pending_detail",
-        success: "state.success_detail",
-        failed: "state.failed_detail",
-        skipped: "state.skipped_detail",
-        cancelled: "queue.cancelled",
-    };
-
     function statusClass(state) {
         // 将后端状态映射为 CSS 状态类，显示文案由 statusLabels 映射到翻译键。
         if (state === "success") return "completed";
@@ -712,11 +781,9 @@
     }
 
     function formatBytes(value) {
-        // 文件进度使用可读单位显示；总大小未知时由调用方显示“未知大小”。
-        if (!Number.isFinite(value) || value <= 0) return "0 B";
-        const units = ["B", "KB", "MB", "GB"];
-        const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
-        return `${(value / (1024 ** index)).toFixed(index ? 1 : 0)} ${units[index]}`;
+        // 文件进度固定使用 MB；总大小未知时由调用方显示“未知大小”。
+        if (!Number.isFinite(value) || value <= 0) return "0.00MB";
+        return `${(value / (1024 ** 2)).toFixed(2)} MB`;
     }
 
     function createNativeQueueItem(task) {
@@ -739,9 +806,7 @@
         const state = document.createElement("span");
         state.className = `status-text ${statusClass(task.state)}`;
         state.textContent = translateText(statusLabels[task.state]);
-        const message = document.createElement("span");
-        message.textContent = task.error ? task.error : translateText(statusDetails[task.state]);
-        stateLine.append(state, message);
+        stateLine.append(state);
         detail.append(link, stateLine);
         item.append(symbol, detail);
         if (task.state === "pending") {
@@ -781,6 +846,7 @@
 
     function renderNativeFiles(target, files) {
         // 每个文件独立显示名称、已完成大小、总大小和实时进度条；列表容器负责滚动。
+        const shouldStickToBottom = followsBottom(target);
         target.replaceChildren();
         if (!files.length) {
             const empty = document.createElement("div");
@@ -796,14 +862,18 @@
             const name = document.createElement("strong");
             name.textContent = file.filename;
             name.title = file.filename;
+            const meta = document.createElement("div");
+            meta.className = "file-download-meta";
             const size = document.createElement("span");
             const completed = formatBytes(Number(file.completed_bytes));
             const total = file.total_bytes ? formatBytes(Number(file.total_bytes)) :
                           translateText("download.unknown_size");
             const percent = file.total_bytes ? Math.min(100, (file.completed_bytes / file.total_bytes) * 100) : 0;
-            const progress = file.total_bytes ? ` · ${Math.round(percent)}%` : "";
-            size.textContent = `${completed} / ${total}${progress}`;
-            head.append(name, size);
+            const progress = document.createElement("span");
+            size.textContent = file.total_bytes ? `${completed}/${total}` : completed;
+            progress.textContent = file.total_bytes ? `${Math.round(percent)}%` : "";
+            meta.append(size, progress);
+            head.append(name, meta);
             const line = document.createElement("div");
             line.className = `progress-line file ${file.state === "completed" ? "completed" : ""}`;
             const fill = document.createElement("i");
@@ -814,13 +884,17 @@
         });
         const count = target.closest(".file-download-section")?.querySelector(".section-heading span");
         if (count) count.textContent = `${files.length} ${translateText("unit.file")}`;
+        stickToBottom(target, shouldStickToBottom);
     }
 
     function renderNativeTaskLists(tasks, files) {
         // 使用一次状态快照同时刷新主队列、监听队列及两个文件下载区域。
         const visibleTasks = tasks.filter((task) => task.state !== "cancelled");
+        const queueShouldStickToBottom = followsBottom(queueList);
+        const monitorShouldStickToBottom = followsBottom(monitorEvents);
         queueList.replaceChildren(...visibleTasks.map(createNativeQueueItem));
         const dashboardTasks = document.getElementById("dashboardTasks");
+        const dashboardShouldStickToBottom = followsBottom(dashboardTasks);
         if (visibleTasks.length) {
             dashboardTasks.replaceChildren(...visibleTasks.map(createNativeCompactTask));
         } else {
@@ -829,6 +903,7 @@
             empty.textContent = translateText("task.queue_empty");
             dashboardTasks.replaceChildren(empty);
         }
+        stickToBottom(dashboardTasks, dashboardShouldStickToBottom);
         document.getElementById("dashboardTaskCount").textContent = `${visibleTasks.length} ${translateText(
             "unit.item")}`;
         const monitorTasks = visibleTasks.filter((task) => task.source === "monitor");
@@ -838,6 +913,8 @@
         renderNativeFiles(monitorFileDownloadList, files.filter((file) => monitorIds.has(file.task_id)));
         refreshQueue();
         refreshMonitorQueue();
+        stickToBottom(queueList, queueShouldStickToBottom && !queueList.hidden);
+        stickToBottom(monitorEvents, monitorShouldStickToBottom && !monitorEvents.hidden);
     }
 
     function renderNativeLogs(logs) {
@@ -901,7 +978,7 @@
             .join(" ");
         applyNameFormat(nameFormat);
         const activeView = document.querySelector(".view.active")?.dataset.page;
-        if (viewCopy[activeView]) {
+        if (viewNames.has(activeView)) {
             updateViewHeader(activeView);
         }
         initializeTranslatedUi();
@@ -949,8 +1026,6 @@
         });
         if (active !== wasActive) setView("monitor", {force: true});
         renderMonitorState(active);
-        document.getElementById("monitorDetected").innerHTML = `${monitor.detected} <small>${translateText(
-            "unit.link")}</small>`;
         document.getElementById("monitorCreated").innerHTML = `${monitor.created} <small>${translateText(
             "unit.item")}</small>`;
     }
@@ -963,6 +1038,16 @@
         document.getElementById("aboutAuthor").textContent = about.author;
         document.getElementById("aboutLicense").textContent = about.license;
         document.getElementById("aboutRepository").textContent = String(about.repository).replace(/^https?:\/\//, "");
+        aboutLinks = about.links || Object.create(null);
+        document.querySelectorAll("[data-about-key]").forEach((button) => {
+            const key = button.dataset.aboutKey;
+            const link = aboutLinks[key];
+            if (!link) return;
+            const value = button.querySelector("strong");
+            if (value) {
+                value.textContent = link.replace(/^https?:\/\//, "");
+            }
+        });
     }
 
     function applyNativeState(state) {
@@ -992,21 +1077,25 @@
             applyNativeState(await nativeApi.get_state());
             return true;
         } catch (error) {
-            showToast(translateText("update.failed"), String(error), "warning");
+            showToast(translateText("update.failed"), "warning");
             return false;
         } finally {
             bridgeRefreshBusy = false;
         }
     }
 
-    async function runNativeAction(action) {
+    async function runNativeAction(action, options = {}) {
+        const showLoading = options.loading === true;
+        if (showLoading) startupScreen.hidden = false;
         // 写操作完成后立即刷新状态；异常直接显示实际原因，避免误用更新检查提示。
         try {
             await action();
             await refreshNativeState();
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            showToast(message, "", "warning");
+            showToast(message, "warning");
+        } finally {
+            if (showLoading) startupScreen.hidden = true;
         }
     }
 
@@ -1033,7 +1122,7 @@
                 startStatePolling();
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
-                showToast(message, "", "warning");
+                showToast(message, "warning");
             }
         })();
     });
@@ -1044,7 +1133,7 @@
                 await nativeApi.decline_disclaimer();
             } catch (error) {
                 const message = error instanceof Error ? error.message : String(error);
-                showToast(message, "", "warning");
+                showToast(message, "warning");
             }
         })();
     });
@@ -1063,7 +1152,16 @@
             void runNativeAction(async () => {
                 const cancelled = await nativeApi.cancel_task(taskId);
                 if (!cancelled) showToast(
-                    translateText("toast.cannot_cancel"), translateText("toast.started_task"), "warning");
+                    translateText("toast.cannot_cancel"), "warning");
+            });
+            return;
+        }
+        if (button.dataset.aboutKey) {
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            void runNativeAction(async () => {
+                const opened = await nativeApi.open_url(aboutLinks[button.dataset.aboutKey]);
+                if (!opened) throw new Error(translateText("toast.browser_unavailable"));
             });
             return;
         }
@@ -1107,8 +1205,8 @@
                 if (!result.ok) throw new Error(result.error);
                 settingsLoaded = false;
                 await refreshUiTranslations();
-                showToast(translateText("settings.saved"), translateText("settings.reloaded"));
-            });
+                showToast(translateText("settings.saved"));
+            }, {loading: true});
         } else if (id === "discardSettings") {
             event.preventDefault();
             event.stopImmediatePropagation();
@@ -1116,13 +1214,6 @@
                 settingsLoaded = false;
                 applyNativeSettings(await nativeApi.get_settings());
                 showToast(translateText("settings.discarded"));
-            });
-        } else if (id === "openRepository") {
-            event.preventDefault();
-            event.stopImmediatePropagation();
-            void runNativeAction(async () => {
-                const opened = await nativeApi.open_repository();
-                if (!opened) throw new Error(translateText("toast.browser_unavailable"));
             });
         } else if (id === "pageCheckUpdate") {
             event.preventDefault();
@@ -1135,18 +1226,19 @@
                     const result = await nativeApi.check_update();
                     if (result.status !== "ok") {
                         setUpdateResult(result.message, "warning");
-                        showToast(translateText("update.failed"), result.message, "warning");
+                        showToast(translateText("update.failed"), "warning");
                         return;
                     }
-                    const updateAvailable = ["update_available", "stable_available"].includes(result.kind);
+                    const updateAvailable = ["update_available", "stable_available", "development_current"].includes(
+                        result.kind);
                     const tone = updateAvailable ? "warning" : "success";
                     const title = result.title;
                     setUpdateResult(`${title}: ${result.message}`, tone);
-                    showToast(title, result.message, tone);
+                    showToast(title, tone);
                 } catch (error) {
                     const message = error?.message || String(error);
                     setUpdateResult(`${translateText("update.failed")}: ${message}`, "error");
-                    showToast(translateText("update.failed"), message, "warning");
+                    showToast(translateText("update.failed"), "warning");
                 } finally {
                     setUpdateChecking(false);
                 }
@@ -1169,7 +1261,7 @@
             startStatePolling();
         })().catch((error) => {
             startupScreen.hidden = true;
-            showToast(translateText("toast.language_load_failed"), String(error), "warning");
+            showToast(translateText("toast.language_load_failed"), "warning");
         });
     }
 
