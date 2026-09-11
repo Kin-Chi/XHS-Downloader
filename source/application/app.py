@@ -34,10 +34,10 @@ from ..expansion import (
 from ..module import (
     __VERSION__,
     ERROR,
+    IMPERSONATE,
     INFO,
     MASTER,
     REPOSITORY,
-    USERAGENT,
     VERSION_BETA,
     VERSION_MAJOR,
     VERSION_MINOR,
@@ -84,12 +84,14 @@ def data_cache(function):
         if self.manager.record_data:
             download = data["下载地址"]
             lives = data["动图地址"]
+            cover = data.get("封面地址")
             await function(
                 self,
                 data,
             )
             data["下载地址"] = download
             data["动图地址"] = lives
+            data["封面地址"] = cover
 
     return inner
 
@@ -138,9 +140,10 @@ class XHS:
         work_path="",
         folder_name="Download",
         name_format="发布时间 作者昵称 作品标题",
-        user_agent: str = USERAGENT,
+        impersonate: str = IMPERSONATE,
         cookie: str = "",
-        proxy: str | dict | None = None,
+        proxy: str | None = None,
+        proxy_download: bool = False,
         timeout=10,
         chunk=1024 * 1024,
         max_retry=5,
@@ -148,6 +151,7 @@ class XHS:
         image_format="JPEG",
         image_download=True,
         video_download=True,
+        video_cover_download=False,
         live_download=False,
         video_preference="resolution",
         folder_mode=False,
@@ -170,16 +174,18 @@ class XHS:
             folder_name,
             name_format,
             chunk,
-            user_agent,
+            impersonate,
             cookie,
             # self.read_browser_cookie(read_cookie) or cookie,
             proxy,
+            proxy_download,
             timeout,
             max_retry,
             record_data,
             image_format,
             image_download,
             video_download,
+            video_cover_download,
             live_download,
             video_preference,
             download_record,
@@ -219,6 +225,7 @@ class XHS:
         container["下载地址"], container["动图地址"] = self.image.get_image_link(
             data, self.manager.image_format
         )
+        container["封面地址"] = None
 
     def __extract_video(
         self,
@@ -232,6 +239,8 @@ class XHS:
         container["动图地址"] = [
             None,
         ]
+        link, _ = self.image.get_image_link(data, self.manager.image_format)
+        container["封面地址"] = link[0] if link else None
 
     async def __download_files(
         self,
@@ -257,6 +266,7 @@ class XHS:
                 filename,
                 container["作品类型"],
                 container["时间戳"],
+                container["封面地址"],
                 progress=progress_callback,
                 task_id=task_id,
             )
@@ -284,6 +294,8 @@ class XHS:
         data["下载地址"] = " ".join(data["下载地址"])
         data["动图地址"] = " ".join(i or "NaN" for i in data["动图地址"])
         data.pop("时间戳", None)
+        # 数据库表结构固定，封面地址不入库，由 data_cache 装饰器在记录后恢复
+        data.pop("封面地址", None)
         await self.data_recorder.add(**data)
 
     async def __add_record(
@@ -301,10 +313,12 @@ class XHS:
         progress_callback: Callable[[dict], None] | None = None,
         task_id: str | None = None,
         result_callback: Callable[[dict], None] | None = None,
+        proxy: str | None = None,
     ) -> list[dict]:
         if not (
             urls := await self.extract_links(
                 url,
+                proxy=proxy,
             )
         ):
             self.logging(_("提取小红书作品链接失败"), WARNING)
@@ -317,6 +331,7 @@ class XHS:
                 download,
                 index,
                 check_record=check_record,
+                proxy=proxy,
                 count=statistics,
                 progress_callback=progress_callback,
                 task_id=task_id,
@@ -390,6 +405,7 @@ class XHS:
     async def extract_links(
         self,
         url: str,
+        proxy: str | None = None,
     ) -> list[str]:
         urls = []
         for i in url.split():
@@ -397,6 +413,7 @@ class XHS:
                 i = await self.html.request_url(
                     u.group(),
                     False,
+                    proxy=proxy,
                 )
             if u := self.SHARE_XHS.search(i):
                 urls.append(u.group())
@@ -426,8 +443,8 @@ class XHS:
         url: str,
         id_: str,
         count: SimpleNamespace,
-        cookie: str = None,
-        proxy: str = None,
+        cookie: str | None = None,
+        proxy: str | None = None,
     ) -> Namespace | dict:
         self.logging(_("开始处理作品：{0}").format(id_))
         html = await self.html.request_url(
@@ -818,6 +835,7 @@ class XHS:
             data = None
             url = await self.extract_links(
                 extract.url,
+                proxy=extract.proxy,
             )
             if not url:
                 msg = _("提取小红书作品链接失败")

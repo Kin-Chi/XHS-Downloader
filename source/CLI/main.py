@@ -7,11 +7,13 @@ from typing import Callable
 from click import (
     Choice,
     Context,
-    Path as ClickPath,
     command,
     echo,
     option,
     pass_context,
+)
+from click import (
+    Path as ClickPath,
 )
 from rich import print
 from rich.panel import Panel
@@ -140,9 +142,15 @@ class CLI:
             ("--work_path", "-wp", "str", _("作品数据/文件保存根路径")),
             ("--folder_name", "-fn", "str", _("作品文件储存文件夹名称")),
             ("--name_format", "-nf", "str", _("作品文件名称格式")),
-            ("--user_agent", "-ua", "str", "User-Agent"),
+            ("--impersonate", "-im", "str", _("浏览器模拟目标")),
             ("--cookie", "-ck", "str", _("小红书网页版 Cookie，无需登录")),
             ("--proxy", "-p", "str", _("网络代理")),
+            (
+                "--proxy_download",
+                "-pd",
+                "bool",
+                _("下载文件时，是否使用 proxy 参数的网络代理"),
+            ),
             ("--timeout", "-t", "int", _("请求数据超时限制，单位：秒")),
             (
                 "--chunk",
@@ -161,6 +169,7 @@ class CLI:
                 _("图文作品文件下载格式，支持：PNG、JPEG、HEIC、AUTO"),
             ),
             ("--live_download", "-ld", "bool", _("动态图片下载开关")),
+            ("--video_cover_download", "-vcd", "bool", _("视频封面下载开关")),
             (
                 "--video_preference",
                 "-vp",
@@ -257,8 +266,8 @@ class CLI:
     "-nf",
 )
 @option(
-    "--user_agent",
-    "-ua",
+    "--impersonate",
+    "-im",
 )
 @option(
     "--cookie",
@@ -267,6 +276,11 @@ class CLI:
 @option(
     "--proxy",
     "-p",
+)
+@option(
+    "--proxy_download",
+    "-pd",
+    type=bool,
 )
 @option(
     "--timeout",
@@ -298,6 +312,11 @@ class CLI:
 @option(
     "--live_download",
     "-ld",
+    type=bool,
+)
+@option(
+    "--video_cover_download",
+    "-vcd",
     type=bool,
 )
 @option(

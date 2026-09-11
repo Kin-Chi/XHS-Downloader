@@ -3,22 +3,16 @@ from os import utime
 from pathlib import Path
 from re import compile, sub
 from shutil import move, rmtree
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_args
 
-from httpx import (
-    AsyncClient,
-    AsyncHTTPTransport,
-    HTTPStatusError,
-    RequestError,
-    TimeoutException,
-    get,
-)
+from curl_cffi.requests import AsyncSession, BrowserTypeLiteral, get
+from curl_cffi.requests.exceptions import RequestException, Timeout
 
 from source.expansion import remove_empty_directories
 
 from ..translation import _
-from .static import HEADERS, USERAGENT, WARNING
-from .tools import logging
+from .static import HEADERS, IMPERSONATE, WARNING
+from .tools import get_site_referer, logging
 
 if TYPE_CHECKING:
     from ..expansion import Cleaner
@@ -58,15 +52,17 @@ class Manager:
         folder: str,
         name_format: str,
         chunk: int,
-        user_agent: str,
+        impersonate: str,
         cookie: str,
-        proxy: str | dict | None,
+        proxy: str | None,
+        proxy_download: bool,
         timeout: int,
         retry: int,
         record_data: bool,
         image_format: str,
         image_download: bool,
         video_download: bool,
+        video_cover_download: bool,
         live_download: bool,
         video_preference: str,
         download_record: bool,
@@ -85,9 +81,8 @@ class Manager:
         self.path = self.__check_path(path)
         self.folder = self.__check_folder(folder)
         self.compatible()
-        self.blank_headers = HEADERS | {
-            "user-agent": user_agent or USERAGENT,
-        }
+        self.blank_headers = HEADERS.copy()
+        self.impersonate = self.__check_impersonate(impersonate)
         self.retry = self.__check_integer(retry, 5, 0)
         self.chunk = self.__check_integer(chunk, 2 * 1024 * 1024, 1024 * 1024)
         self.name_format = self.__check_name_format(name_format)
@@ -95,37 +90,30 @@ class Manager:
         self.image_format = self.__check_image_format(image_format)
         self.folder_mode = self.check_bool(folder_mode, False)
         self.download_record = self.check_bool(download_record, True)
+        self.timeout = self.__check_integer(timeout, 10, 1)
         self.proxy_tip = None
+        self.proxy_download = self.check_bool(proxy_download, False)
         self.proxy = self.__check_proxy(proxy)
         self.print_proxy_tip()
-        self.timeout = self.__check_integer(timeout, 10, 1)
-        self.request_client = AsyncClient(
-            headers=self.blank_headers
-            | {
-                "referer": "https://www.xiaohongshu.com/",
-            },
-            cookies=self.cookie_str_to_dict(cookie),
-            timeout=timeout,
-            verify=False,
-            http2=True,
-            follow_redirects=True,
-            mounts={
-                "http://": AsyncHTTPTransport(proxy=self.proxy),
-                "https://": AsyncHTTPTransport(proxy=self.proxy),
-            },
-        )
-        self.download_client = AsyncClient(
+        self.request_client = AsyncSession(
             headers=self.blank_headers,
-            timeout=timeout,
+            cookies=self.cookie_str_to_dict(cookie),
+            timeout=self.timeout,
             verify=False,
-            follow_redirects=True,
-            mounts={
-                "http://": AsyncHTTPTransport(proxy=self.proxy),
-                "https://": AsyncHTTPTransport(proxy=self.proxy),
-            },
+            allow_redirects=True,
+            proxy=self.proxy,
+            impersonate=self.impersonate,
+        )
+        self.download_client = AsyncSession(
+            timeout=self.timeout,
+            verify=False,
+            allow_redirects=True,
+            proxy=self.proxy if self.proxy_download else None,
+            impersonate=self.impersonate,
         )
         self.image_download = self.check_bool(image_download, True)
         self.video_download = self.check_bool(video_download, True)
+        self.video_cover_download = self.check_bool(video_cover_download, False)
         self.video_preference = self.check_video_preference(video_preference)
         self.live_download = self.check_bool(live_download, True)
         self.author_archive = self.check_bool(author_archive, False)
@@ -214,8 +202,8 @@ class Manager:
             return default
 
     async def close(self):
-        await self.request_client.aclose()
-        await self.download_client.aclose()
+        await self.request_client.close()
+        await self.download_client.close()
         # self.__clean()
         remove_empty_directories(self.root)
         remove_empty_directories(self.folder)
@@ -241,31 +229,26 @@ class Manager:
 
     def __check_proxy(
         self,
-        proxy: str,
+        proxy: str | None,
         url="https://www.xiaohongshu.com/explore",
     ) -> str | None:
         if proxy:
             try:
                 response = get(
                     url,
+                    timeout=self.timeout,
+                    impersonate=self.impersonate,
                     proxy=proxy,
-                    timeout=10,
-                    headers={
-                        "User-Agent": USERAGENT,
-                    },
                 )
                 response.raise_for_status()
                 self.proxy_tip = (_("代理 {0} 测试成功").format(proxy),)
                 return proxy
-            except TimeoutException:
+            except Timeout:
                 self.proxy_tip = (
                     _("代理 {0} 测试超时").format(proxy),
                     WARNING,
                 )
-            except (
-                RequestError,
-                HTTPStatusError,
-            ) as e:
+            except RequestException as e:
                 self.proxy_tip = (
                     _("代理 {0} 测试失败：{1}").format(
                         proxy,
@@ -274,6 +257,24 @@ class Manager:
                     WARNING,
                 )
         return None
+
+    def get_headers(
+        self,
+        url: str = "",
+    ) -> dict:
+        headers = self.blank_headers.copy()
+        headers["referer"] = get_site_referer(url)
+        return headers
+
+    def __check_impersonate(self, impersonate: str) -> str:
+        if impersonate in get_args(BrowserTypeLiteral):
+            return impersonate
+        logging(
+            self.print,
+            _("impersonate 参数错误，使用默认值: {0}").format(IMPERSONATE),
+            WARNING,
+        )
+        return IMPERSONATE
 
     def print_proxy_tip(
         self,

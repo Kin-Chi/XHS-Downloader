@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from aiofiles import open
-from httpx import HTTPError
+from curl_cffi.requests.exceptions import RequestException
 
 from ..expansion import CacheError
 
@@ -20,7 +20,7 @@ from ..module import retry as re_download
 from ..translation import _
 
 if TYPE_CHECKING:
-    from httpx import AsyncClient
+    from curl_cffi.requests import AsyncSession
 
     from ..module import Manager
 
@@ -29,6 +29,7 @@ __all__ = ["Download"]
 
 class Download:
     SEMAPHORE = Semaphore(MAX_WORKERS)
+    WRITE_BUFFER_SIZE = 1024 * 1024 * 100
     CONTENT_TYPE_MAP = {
         "image/png": "png",
         "image/jpeg": "jpeg",
@@ -47,7 +48,7 @@ class Download:
         self.folder = manager.folder
         self.temp = manager.temp
         self.chunk = manager.chunk
-        self.client: "AsyncClient" = manager.download_client
+        self.client: "AsyncSession" = manager.download_client
         self.headers = manager.blank_headers
         self.retry = manager.retry
         self.folder_mode = manager.folder_mode
@@ -63,6 +64,7 @@ class Download:
         )
         self.image_download = manager.image_download
         self.video_download = manager.video_download
+        self.video_cover_download = manager.video_cover_download
         self.live_download = manager.live_download
         self.author_archive = manager.author_archive
         self.write_mtime = manager.write_mtime
@@ -76,12 +78,18 @@ class Download:
         filename: str,
         type_: str,
         mtime: int,
+        cover: str | None = None,
         progress: Callable[[dict], None] | None = None,
         task_id: str | None = None,
     ) -> list[Any]:
         if type_ == _("视频"):
             tasks = self.__ready_download_video(
                 urls,
+                path,
+                filename,
+            )
+            tasks += self.__ready_download_cover(
+                cover,
                 path,
                 filename,
             )
@@ -138,6 +146,24 @@ class Download:
         ):
             return []
         return [(urls[0], name, self.video_format)]
+
+    def __ready_download_cover(
+        self,
+        url: str | None,
+        path: Path,
+        name: str,
+    ) -> list:
+        if not self.video_cover_download or not url:
+            return []
+        if not any(
+            self.__check_exists_path(
+                path,
+                f"{name}.{s}",
+            )
+            for s in self.image_format_list
+        ):
+            return [(url, name, self.image_format)]
+        return []
 
     def __ready_download_image(
         self,
@@ -247,11 +273,17 @@ class Download:
                     content_length = int(response.headers.get("content-length", 0) or 0)
                     total = completed + content_length if content_length else None
                     report("downloading", total)
+                    buffer = bytearray()
                     async with open(temp, "ab") as f:
-                        async for chunk in response.aiter_bytes(self.chunk):
-                            await f.write(chunk)
+                        async for chunk in response.aiter_content(self.chunk):
+                            buffer.extend(chunk)
+                            if len(buffer) >= self.WRITE_BUFFER_SIZE:
+                                await f.write(bytes(buffer))
+                                buffer.clear()
                             completed += len(chunk)
                             report("downloading", total)
+                        if buffer:
+                            await f.write(bytes(buffer))
                 real = await self.__suffix_with_file(
                     temp,
                     path,
@@ -268,7 +300,7 @@ class Download:
                 report("completed", total)
                 logging(self.print, _("文件 {0} 下载成功").format(real.name))
                 return True
-            except HTTPError as error:
+            except RequestException as error:
                 report("failed")
                 logging(
                     self.print,

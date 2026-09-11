@@ -3,7 +3,7 @@ from pathlib import Path
 from platform import system
 from shutil import move
 
-from .static import USERAGENT, VOLUME
+from .static import IMPERSONATE, VOLUME
 
 __all__ = ["Settings"]
 
@@ -15,11 +15,10 @@ class Settings:
         "work_path": "",  # 工作目录路径
         "folder_name": "Download",  # 下载文件夹名称
         "name_format": "发布时间 作者昵称 作品标题",  # 文件命名格式
-        "user_agent": USERAGENT,  # 请求头
-        # "a_user_agent": USERAGENT,  # 请求头
-        # "b_user_agent": USERAGENT,  # 请求头
+        "impersonate": IMPERSONATE,  # 浏览器模拟目标
         "cookie": "",  # Cookie
         "proxy": None,  # 代理设置
+        "proxy_download": False,  # 下载文件时使用网络代理
         "timeout": 10,  # 超时时间(秒)
         "chunk": 1024 * 1024 * 2,  # 下载块大小(字节)
         "max_retry": 5,  # 最大重试次数
@@ -27,6 +26,7 @@ class Settings:
         "image_format": "JPEG",  # 图文作品格式
         "image_download": True,  # 是否下载图文
         "video_download": True,  # 是否下载视频
+        "video_cover_download": False,  # 是否下载视频封面
         "live_download": False,  # 是否下载动图
         "video_preference": "resolution",  # 视频文件偏好
         "folder_mode": False,  # 文件夹归档模式

@@ -164,14 +164,24 @@
         pageCheckUpdate.innerHTML = `${icon("refresh")}${translateText("update.check")}`;
     }
 
-    // 创建任务区域只提交原始输入，作品链接提取和下载规则均由后端处理。
+    // 创建任务区域提交原始输入，作品链接提取和下载规则均由后端处理。
     const urlInput = document.getElementById("urlInput");
+    const indexInput = document.getElementById("indexInput");
     const createTask = document.getElementById("createTask");
 
     function updateCreateButton() {
         const hasContent = Boolean(urlInput.value.trim());
         createTask.disabled = !hasContent;
         return hasContent;
+    }
+
+    function getImageIndex() {
+        const values = indexInput.value
+                                 .trim()
+                                 .split(/[\s,，]+/)
+                                 .filter((value) => /^\d+$/.test(value))
+                                 .map((value) => Number.parseInt(value, 10));
+        return values.length ? values : null;
     }
 
     function insertTextAtCursor(input, text) {
@@ -201,6 +211,7 @@
 
     document.getElementById("clearInput").addEventListener("click", () => {
         urlInput.value = "";
+        indexInput.value = "";
         updateCreateButton();
         urlInput.focus();
     });
@@ -215,9 +226,10 @@
 
     createTask.addEventListener("click", () => {
         void runNativeAction(async () => {
-            const created = await nativeApi.create_tasks(urlInput.value);
+            const created = await nativeApi.create_tasks(urlInput.value, getImageIndex());
             if (!created.length) throw new Error(translateText("toast.no_supported_link"));
             urlInput.value = "";
+            indexInput.value = "";
             updateCreateButton();
         });
     });
@@ -226,9 +238,10 @@
             const content = await nativeApi.paste_content();
             urlInput.value = content;
             updateCreateButton();
-            const created = await nativeApi.create_tasks(content);
+            const created = await nativeApi.create_tasks(content, getImageIndex());
             if (!created.length) throw new Error(translateText("toast.no_supported_link"));
             urlInput.value = "";
+            indexInput.value = "";
             updateCreateButton();
         });
     });
@@ -1065,6 +1078,7 @@
         document.getElementById("settingsImageDownload").checked = Boolean(settings.image_download);
         document.getElementById("settingsVideoDownload").checked = Boolean(settings.video_download);
         document.getElementById("settingsLiveDownload").checked = Boolean(settings.live_download);
+        document.getElementById("settingsVideoCoverDownload").checked = Boolean(settings.video_cover_download);
         document.getElementById("settingsImageFormat").value = settings.image_format.toLowerCase();
         document.getElementById("settingsVideoPreference").value = settings.video_preference;
         document.getElementById("settingsNoteFormat").value = settings.note_format;
@@ -1074,13 +1088,14 @@
         document.getElementById("settingsRecordData").checked = Boolean(settings.record_data);
         document.getElementById("settingsWriteMtime").checked = Boolean(settings.write_mtime);
         document.getElementById("settingsCookie").value = settings.cookie || "";
-        document.getElementById("settingsUserAgent").value = settings.user_agent || "";
+        document.getElementById("settingsImpersonate").value = settings.impersonate || "";
         document.getElementById("settingsProxy").value = settings.proxy || "";
         document.getElementById("settingsTimeout").value = String(settings.timeout);
         document.getElementById("settingsMaxRetry").value = String(settings.max_retry);
         document.getElementById("settingsChunkSize").value = String(settings.chunk);
         document.getElementById("settingsLanguage").value = settings.language;
         document.getElementById("settingsScriptServer").checked = Boolean(settings.script_server);
+        document.getElementById("settingsProxyDownload").checked = Boolean(settings.proxy_download);
         settingsLoaded = true;
     }
 
@@ -1115,6 +1130,7 @@
             image_download: document.getElementById("settingsImageDownload").checked,
             video_download: document.getElementById("settingsVideoDownload").checked,
             live_download: document.getElementById("settingsLiveDownload").checked,
+            video_cover_download: document.getElementById("settingsVideoCoverDownload").checked,
             image_format: document.getElementById("settingsImageFormat").value,
             video_preference: document.getElementById("settingsVideoPreference").value,
             note_format: document.getElementById("settingsNoteFormat").value,
@@ -1124,13 +1140,14 @@
             record_data: document.getElementById("settingsRecordData").checked,
             write_mtime: document.getElementById("settingsWriteMtime").checked,
             cookie: document.getElementById("settingsCookie").value.trim(),
-            user_agent: document.getElementById("settingsUserAgent").value.trim(),
+            impersonate: document.getElementById("settingsImpersonate").value.trim(),
             proxy: document.getElementById("settingsProxy").value.trim() || null,
             timeout: Number(document.getElementById("settingsTimeout").value || 10),
             max_retry: Number(document.getElementById("settingsMaxRetry").value || 5),
             chunk: chunkSize,
             language: document.getElementById("settingsLanguage").value,
             script_server: document.getElementById("settingsScriptServer").checked,
+            proxy_download: document.getElementById("settingsProxyDownload").checked,
         };
     }
 
@@ -1344,7 +1361,6 @@
                     const result = await nativeApi.check_update();
                     if (result.status !== "ok") {
                         setUpdateResult(result.message, "warning");
-                        showToast(translateText("update.failed"), "warning");
                         return;
                     }
                     const updateAvailable = ["update_available", "stable_available", "development_current"].includes(
@@ -1352,11 +1368,9 @@
                     const tone = updateAvailable ? "warning" : "success";
                     const title = result.title;
                     setUpdateResult(`${title}: ${result.message}`, tone);
-                    showToast(title, tone);
                 } catch (error) {
                     const message = error?.message || String(error);
                     setUpdateResult(`${translateText("update.failed")}: ${message}`, "error");
-                    showToast(translateText("update.failed"), "warning");
                 } finally {
                     setUpdateChecking(false);
                 }

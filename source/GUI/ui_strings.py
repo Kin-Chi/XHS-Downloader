@@ -40,6 +40,8 @@ def get_ui_messages() -> dict[str, str]:
         "nav.about": _("关于项目"),
         "task.link": _("请输入小红书图文/视频作品链接"),
         "task.link_placeholder": _("多个链接之间使用空格或换行分隔"),
+        "task.index": _("图片序号"),
+        "task.index_placeholder": _("例如：1 3 5，留空表示全部，仅限处理单个链接"),
         "task.paste": _("读取剪贴板"),
         "task.paste_process": _("读取剪贴板并处理"),
         "task.clear": _("清空输入框"),
@@ -102,6 +104,10 @@ def get_ui_messages() -> dict[str, str]:
         "settings.image_download_help": _("关闭后，跳过下载图文和图集作品文件"),
         "settings.video_download": _("视频作品下载开关"),
         "settings.video_download_help": _("关闭后，跳过下载视频作品文件"),
+        "settings.video_cover_download": _("视频封面下载开关"),
+        "settings.video_cover_download_help": _(
+            "开启后，下载视频作品的封面图片，图片格式与图文作品下载格式一致"
+        ),
         "settings.live_download": _("动态图片下载开关"),
         "settings.live_download_help": _(
             "关闭后，跳过下载图文和图集作品的动态图片文件，需同时开启图文作品下载"
@@ -126,13 +132,15 @@ def get_ui_messages() -> dict[str, str]:
         "settings.record_data_help": _(
             "开启后，处理成功的作品数据会写入 ExploreData.db（SQLite 数据库）"
         ),
-        "settings.write_mtime": _("文件修改时间"),
+        "settings.write_mtime": _("同步文件修改时间"),
         "settings.write_mtime_help": _(
             "开启后，作品文件属性的修改时间会被设置为作品发布时间"
         ),
+        "settings.impersonate": _("浏览器模拟目标"),
         "settings.cookie": _("Cookie"),
         "settings.proxy": _("网络代理"),
         "settings.proxy_placeholder": _("不使用代理"),
+        "settings.proxy_download": _("下载文件时使用网络代理"),
         "settings.timeout": _("请求超时时间"),
         "settings.second": _("秒"),
         "settings.retry": _("请求数据失败时，重试的最大次数"),
