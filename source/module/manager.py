@@ -145,7 +145,6 @@ class Manager:
         if (i := image_format.lower()) in {
             "auto",
             "png",
-            "webp",
             "jpeg",
             "heic",
             "avif",

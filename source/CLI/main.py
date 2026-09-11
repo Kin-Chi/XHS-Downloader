@@ -166,7 +166,7 @@ class CLI:
                 "--image_format",
                 "-if",
                 "choice",
-                _("图文作品文件下载格式，支持：PNG、WEBP、JPEG、HEIC、AUTO"),
+                _("图文作品文件下载格式，支持：PNG、JPEG、HEIC、AUTO"),
             ),
             ("--live_download", "-ld", "bool", _("动态图片下载开关")),
             ("--video_cover_download", "-vcd", "bool", _("视频封面下载开关")),
@@ -306,7 +306,7 @@ class CLI:
     "--image_format",
     "-if",
     type=Choice(
-        ["png", "PNG", "webp", "WEBP", "jpeg", "JPEG", "heic", "HEIC", "auto", "AUTO"]
+        ["png", "PNG", "jpeg", "JPEG", "heic", "HEIC", "auto", "AUTO"]
     ),
 )
 @option(

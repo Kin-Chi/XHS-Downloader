@@ -21,7 +21,7 @@ class Image:
                 for i in images
             ]
         match format_:
-            case "png" | "webp" | "jpeg" | "heic" | "avif":
+            case "png" | "jpeg" | "heic" | "avif":
                 return [
                     Html.format_url(
                         cls.__generate_fixed_link(
