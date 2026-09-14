@@ -233,8 +233,6 @@ async def example_api():
 <p><b>MCP URL:</b><code>http://127.0.0.1:5556/mcp/</code></p>
 <img src="static/screenshot/MCP配置示例.png" alt="MCP Configuration Example">
 <h3>MCP Invocation Example</h3>
-<details>
-<summary>MCP Function and Call Example, suitable for developers who need to configure and use MCP services (Click to Expand)</summary>
 <h4><strong>Retrieve RedNote Notes Information</strong></h4>
 <img src="static/screenshot/MCP获取数据.png" alt="MCP Data Retrieval">
 <hr>
@@ -243,7 +241,6 @@ async def example_api():
 <img src="static/screenshot/MCP下载文件1.png" alt="MCP File Download">
 <hr>
 <img src="static/screenshot/MCP下载文件2.png" alt="MCP File Download">
-</details>
 </details>
 <h1>📜 Other instructions</h1>
 <ul>

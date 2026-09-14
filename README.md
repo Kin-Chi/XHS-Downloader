@@ -230,8 +230,6 @@ async def example_api():
 <p><b>MCP URL：</b><code>http://127.0.0.1:5556/mcp/</code></p>
 <img src="static/screenshot/MCP配置示例.png" alt="MCP配置示例">
 <h3>MCP 调用示例</h3>
-<details>
-<summary>MCP 功能及调用示例，适合需要配置 MCP 服务使用的开发者（点击展开）</summary>
 <h4><strong>获取小红书作品信息</strong></h4>
 <img src="static/screenshot/MCP获取数据.png" alt="MCP获取数据">
 <hr>
@@ -240,7 +238,6 @@ async def example_api():
 <img src="static/screenshot/MCP下载文件1.png" alt="MCP下载文件">
 <hr>
 <img src="static/screenshot/MCP下载文件2.png" alt="MCP下载文件">
-</details>
 </details>
 <h1>📜 其他说明</h1>
 <ul>
