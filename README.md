@@ -2,7 +2,9 @@
 <img src="static/XHS-Downloader.png" alt="XHS-Downloader" height="256" width="256"><br>
 <h1>XHS-Downloader</h1>
 <p>简体中文 | <a href="README_EN.md">English</a></p>
-<a href="https://trendshift.io/repositories/5435" target="_blank"><img src="https://trendshift.io/api/badge/repositories/5435" alt="JoeanAmier%2FXHS-Downloader | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+<a href="https://www.star-history.com/joeanamier/xhs-downloader">
+  <picture><source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=JoeanAmier/XHS-Downloader&type=rank&theme=dark" /><source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=JoeanAmier/XHS-Downloader&type=rank" /><img alt="Star History Rank" src="https://api.star-history.com/badge?repo=JoeanAmier/XHS-Downloader&type=rank" /></picture> <picture><source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/badge?repo=JoeanAmier/XHS-Downloader&type=trending&theme=dark" /><source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/badge?repo=JoeanAmier/XHS-Downloader&type=trending" /><img alt="GitHub Trending Repository of the Day" src="https://api.star-history.com/badge?repo=JoeanAmier/XHS-Downloader&type=trending" /></picture>
+ </a>
 <br>
 <img alt="GitHub" src="https://img.shields.io/github/license/JoeanAmier/XHS-Downloader?style=flat-square">
 <img alt="GitHub forks" src="https://img.shields.io/github/forks/JoeanAmier/XHS-Downloader?style=flat-square&color=55efc4">
@@ -13,7 +15,7 @@
 <img alt="Static Badge" src="https://img.shields.io/badge/Python-≥3.12-b8e994?style=flat-square&logo=python&labelColor=3dc1d3">
 <img alt="Static Badge" src="https://img.shields.io/badge/UserScript-ffec3d?style=flat-square&logo=tampermonkey&logoColor=%2300485B">
 <img src="https://img.shields.io/badge/Sourcery-enabled-884898?style=flat-square&color=1890ff" alt="">
-<img alt="Static Badge" src="https://img.shields.io/badge/Docker-badc58?style=flat-square&logo=docker">
+<img alt="Docker Pulls" src="https://img.shields.io/docker/pulls/joeanamier/xhs-downloader?style=flat-square&color=badc58">
 <img alt="GitHub all releases" src="https://img.shields.io/github/downloads/JoeanAmier/XHS-Downloader/total?style=flat-square&color=ffdd59">
 <br>
 <p>🔥 <b>小红书（XiaoHongShu、RedNote）链接提取/作品采集工具！</b></p>
@@ -307,6 +309,7 @@ async def example():
     timeout = 5  # 请求数据超时限制，单位：秒
     chunk = 1024 * 1024 * 10  # 下载文件时，每次从服务器获取的数据块大小，单位：字节
     max_retry = 2  # 请求数据失败时，重试的最大次数，单位：次
+    avg_delay = 6.0  # 请求数据的间隔时间均值，单位：秒
     record_data = False  # 是否保存作品数据至文件
     image_format = "AUTO"  # 图文作品文件下载格式，支持：AUTO、PNG、JPEG、HEIC
     folder_mode = False  # 是否将每个作品的文件储存至单独的文件夹
@@ -333,6 +336,7 @@ async def example():
         timeout=timeout,
         chunk=chunk,
         max_retry=max_retry,
+        avg_delay=avg_delay,
         record_data=record_data,
         image_format=image_format,
         folder_mode=folder_mode,
@@ -440,6 +444,12 @@ async def example():
 <td align="center">int</td>
 <td align="center">请求数据超时限制，单位：秒</td>
 <td align="center">10</td>
+</tr>
+<tr>
+<td align="center">avg_delay</td>
+<td align="center">float</td>
+<td align="center">请求数据的间隔时间均值，单位：秒；最小值 0.1</td>
+<td align="center">6.0</td>
 </tr>
 <tr>
 <td align="center">chunk</td>
@@ -707,9 +717,13 @@ A: 由于权限限制，您无法直接触发主仓库的 Actions。请通过 Fo
 <li><b>KS-Downloader（快手、KuaiShou）</b>：<a href="https://github.com/JoeanAmier/KS-Downloader">https://github.com/JoeanAmier/KS-Downloader</a></li>
 </ul>
 <h1>⭐ Star 趋势</h1>
-<p>
-<img alt="Star History Chart" src="https://api.star-history.com/chart?repos=JoeanAmier/XHS-Downloader&type=timeline&legend=bottom-right&sealed_token=ZDTLh76ddaIS6ETR6NSuijagJA79HsTOsW-cTmNd8i7MHejvjsI_D6UaNW2JU-H4gEbmrNOPDssMQpIRvGh8dfn6Gz-QmUnD3BhdMbpcet3YWyisu2sJOq4VGJzyVTf78-JfuKGfbJvH-NEUtu5qQDvypXM9O6kP8i1K27YE9ZoTpYnmKKlHfTMNoDXT" />
-</p>
+<a href="https://www.star-history.com/?repos=joeanamier%2Fxhs-downloader&type=timeline&releases=&legend=bottom-right">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=joeanamier/xhs-downloader&type=timeline&theme=dark&legend=bottom-right" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=joeanamier/xhs-downloader&type=timeline&legend=bottom-right" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=joeanamier/xhs-downloader&type=timeline&legend=bottom-right" />
+ </picture>
+</a>
 <h1>⚠️ 免责声明</h1>
 <ol>
 <li>使用者对本项目的使用由使用者自行决定，并自行承担风险。作者对使用者使用本项目所产生的任何损失、责任、或风险概不负责。</li>
