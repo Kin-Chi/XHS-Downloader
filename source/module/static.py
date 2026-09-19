@@ -1,8 +1,8 @@
 import sys
 from pathlib import Path
 
-VERSION_MAJOR = 2
-VERSION_MINOR = 8
+VERSION_MINOR = 9
+VERSION_BETA = True
 VERSION_BETA = False
 __VERSION__ = f"{VERSION_MAJOR}.{VERSION_MINOR}.{'beta' if VERSION_BETA else 'stable'}"
 ROOT: Path = (
