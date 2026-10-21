@@ -50,7 +50,7 @@ jobs:
         run: |
           uv python install 3.12
           uv sync --frozen --no-dev --no-install-project --python 3.12
-          uv pip install cx_Freeze
+          uv pip install cx_Freeze email-validator
 
       - name: 获取构建日期
         run: >-
