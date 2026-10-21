@@ -24,6 +24,7 @@ build_exe_options = {
         ("static", "static"),
         ("locale", "locale"),
         include_distribution_metadata("opentelemetry-api"),
+        include_distribution_metadata("email-validator"),
     ],
     "include_msvcr": True,
 }
